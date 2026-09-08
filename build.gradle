@@ -1,0 +1,58 @@
+plugins {
+	id 'java'
+}
+
+// 'latest.release' rather than a pin, matching the plugin-hub template and
+// the sibling clan-bank plugin. The hub builds every submission against the
+// version in its own runelite.version file regardless, so pinning here only
+// risks disagreeing with the version it is actually compiled against.
+def runeLiteVersion = 'latest.release'
+
+repositories {
+	mavenLocal()
+	maven {
+		url = 'https://repo.runelite.net'
+	}
+	mavenCentral()
+}
+
+dependencies {
+	compileOnly group: 'net.runelite', name: 'client', version: runeLiteVersion
+	compileOnly group: 'org.projectlombok', name: 'lombok', version: '1.18.30'
+	annotationProcessor group: 'org.projectlombok', name: 'lombok', version: '1.18.30'
+
+	testImplementation group: 'net.runelite', name: 'client', version: runeLiteVersion
+	testImplementation group: 'junit', name: 'junit', version: '4.13.2'
+}
+
+java {
+	sourceCompatibility = JavaVersion.VERSION_11
+	targetCompatibility = JavaVersion.VERSION_11
+}
+
+tasks.withType(JavaCompile).configureEach {
+	options.compilerArgs << '-Xlint:deprecation'
+}
+
+group = 'com.psgill'
+version = '1.0.0'
+
+// Launches RuneLite with this plugin already loaded, for local development.
+// Same shape as the sibling plugins: a real task, so the JVM flags apply the
+// same way from a terminal (./gradlew runPlugin) or from IntelliJ's Gradle
+// tool window under Tasks > application.
+task runPlugin(type: JavaExec) {
+	group = 'application'
+	description = 'Launches RuneLite with the Puppy Tracker plugin loaded.'
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = 'com.psgill.puppy.PuppyPluginTest'
+	// RuneLite refuses to start without assertions enabled.
+	enableAssertions = true
+	// JDK 17+ blocks the reflective access RuneLite's macOS support needs.
+	jvmArgs = [
+		'--add-exports=java.desktop/com.apple.eawt=ALL-UNNAMED',
+		'--add-opens=java.desktop/sun.awt=ALL-UNNAMED',
+		'--add-opens=java.desktop/sun.awt.image=ALL-UNNAMED',
+		'--add-opens=java.desktop/sun.java2d=ALL-UNNAMED',
+	]
+}
