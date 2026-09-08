@@ -35,6 +35,8 @@ class PuppyTracker
 	/** The game warns you this long after the last feed. */
 	static final long HUNGER_WARNING_SECONDS = 15 * 60;
 
+	private static final long GROWTH_MILLIS = GROWTH_SECONDS * 1000L;
+
 	/**
 	 * Markers in the guess-age reply, which reads:
 	 *
@@ -55,8 +57,16 @@ class PuppyTracker
 
 	private static final Pattern MINUTES = Pattern.compile("(\\d+)\\s*minute");
 
-	/** Growth banked so far, in seconds. */
-	private long grownSeconds;
+	/**
+	 * Growth banked so far, in milliseconds.
+	 *
+	 * Milliseconds rather than seconds because this is accumulated, and a
+	 * game tick is 600ms: adding {@code elapsed / 1000} once per tick is
+	 * always adding zero, and the remainder is gone for good because the
+	 * accrual mark still moves. Kept whole here and rounded only on the way
+	 * out.
+	 */
+	private long grownMillis;
 
 	/** When the puppy was last fed, or null if it has never been seen fed. */
 	private Long lastFedMillis;
@@ -109,9 +119,9 @@ class PuppyTracker
 			return;
 		}
 
-		grownSeconds = Math.min(GROWTH_SECONDS, grownSeconds + (end - from) / 1000);
+		grownMillis = Math.min(GROWTH_MILLIS, grownMillis + (end - from));
 
-		if (grownSeconds >= GROWTH_SECONDS)
+		if (grownMillis >= GROWTH_MILLIS)
 		{
 			fullyGrown = true;
 		}
@@ -163,18 +173,18 @@ class PuppyTracker
 	/** Remaining active growth in milliseconds; 0 once fully grown. */
 	long untilGrownMillis()
 	{
-		return Math.max(0, GROWTH_SECONDS - grownSeconds) * 1000L;
+		return Math.max(0, GROWTH_MILLIS - grownMillis);
 	}
 
 	/** 0 to 1 across the three hours. */
 	double growthFraction()
 	{
-		return Math.min(1, (double) grownSeconds / GROWTH_SECONDS);
+		return Math.min(1, (double) grownMillis / GROWTH_MILLIS);
 	}
 
 	long grownSeconds()
 	{
-		return grownSeconds;
+		return grownMillis / 1000;
 	}
 
 	Long lastFedMillis()
@@ -225,8 +235,8 @@ class PuppyTracker
 	 */
 	void syncAge(long ageSeconds)
 	{
-		grownSeconds = Math.max(0, Math.min(GROWTH_SECONDS, ageSeconds));
-		fullyGrown = grownSeconds >= GROWTH_SECONDS;
+		grownMillis = Math.max(0, Math.min(GROWTH_MILLIS, ageSeconds * 1000L));
+		fullyGrown = grownMillis >= GROWTH_MILLIS;
 	}
 
 	/** True when this line looks like the reply to "Guess age". */
@@ -322,14 +332,14 @@ class PuppyTracker
 
 	void grownUp()
 	{
-		grownSeconds = GROWTH_SECONDS;
+		grownMillis = GROWTH_MILLIS;
 		fullyGrown = true;
 	}
 
 	/** Starting over with a fresh puppy. */
 	void reset(long nowMillis)
 	{
-		grownSeconds = 0;
+		grownMillis = 0;
 		fullyGrown = false;
 		lastFedMillis = nowMillis;
 		lastAccrualMillis = nowMillis;
@@ -340,7 +350,7 @@ class PuppyTracker
 	Map<String, String> save()
 	{
 		Map<String, String> state = new LinkedHashMap<>();
-		state.put("grownSeconds", Long.toString(grownSeconds));
+		state.put("grownMillis", Long.toString(grownMillis));
 		state.put("fullyGrown", Boolean.toString(fullyGrown));
 
 		if (lastFedMillis != null)
@@ -363,9 +373,16 @@ class PuppyTracker
 			return;
 		}
 
-		Long grown = parse(state.get("grownSeconds"));
-		grownSeconds = grown == null ? 0 : Math.min(GROWTH_SECONDS, Math.max(0, grown));
-		fullyGrown = Boolean.parseBoolean(state.get("fullyGrown")) || grownSeconds >= GROWTH_SECONDS;
+		Long grown = parse(state.get("grownMillis"));
+		if (grown == null)
+		{
+			// Saved by a version that stored seconds.
+			Long legacy = parse(state.get("grownSeconds"));
+			grown = legacy == null ? null : legacy * 1000L;
+		}
+
+		grownMillis = grown == null ? 0 : Math.min(GROWTH_MILLIS, Math.max(0, grown));
+		fullyGrown = Boolean.parseBoolean(state.get("fullyGrown")) || grownMillis >= GROWTH_MILLIS;
 		lastFedMillis = parse(state.get("lastFed"));
 
 		String name = state.get("petName");

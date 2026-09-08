@@ -42,6 +42,43 @@ public class PuppyTrackerTest
 	}
 
 	/**
+	 * Ticks arrive every 600ms, and growth used to be accumulated as
+	 * {@code elapsed / 1000} — which is zero for every one of them, with the
+	 * remainder discarded because the accrual mark still moved. The result
+	 * was a "Grows in" that never counted down at all. Growth is banked in
+	 * milliseconds now, and this ticks at the real cadence to prove it.
+	 */
+	@Test
+	public void growsWhenTickedAtTheGamesSixHundredMillisecondCadence()
+	{
+		tracker.fed(0);
+
+		for (long at = 0; at <= 5 * MINUTE; at += 600)
+		{
+			tracker.tick(at);
+		}
+
+		assertEquals(5 * 60, tracker.grownSeconds());
+		assertEquals(175 * MINUTE, tracker.untilGrownMillis());
+	}
+
+	/** Sub-second ticks must not lose time to rounding over the long run. */
+	@Test
+	public void doesNotDriftWhenTicksAreNotWholeSeconds()
+	{
+		tracker.fed(0);
+
+		for (long at = 0; at <= 10 * MINUTE; at += 350)
+		{
+			tracker.tick(at);
+		}
+
+		// Ticking stops on the last multiple of 350ms at or under 10m.
+		long lastTick = (10 * MINUTE / 350) * 350;
+		assertEquals(lastTick / 1000, tracker.grownSeconds());
+	}
+
+	/**
 	 * The rule the whole design turns on: time spent unfed does not count,
 	 * so growth is seconds banked rather than a countdown from a start time.
 	 */
