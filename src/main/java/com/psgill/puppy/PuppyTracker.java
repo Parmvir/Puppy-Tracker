@@ -38,6 +38,19 @@ class PuppyTracker
 	private static final long GROWTH_MILLIS = GROWTH_SECONDS * 1000L;
 
 	/**
+	 * The longest gap between ticks that still counts as growing.
+	 *
+	 * Ticks are 600ms, so anything beyond a few seconds means the plugin
+	 * was not watching: logged out, hopping worlds, or the machine asleep.
+	 * Crediting such a gap would bank growth for time the puppy demonstrably
+	 * was not following you — close a laptop for eight hours inside the feed
+	 * window and it would wake up nearly grown. Long gaps re-anchor and
+	 * credit nothing, so the error is always to under-count, which "Guess
+	 * age" then corrects.
+	 */
+	private static final long MAX_CREDIT_MILLIS = 30_000;
+
+	/**
 	 * Markers in the guess-age reply, which reads:
 	 *
 	 * "After taking a good look at your puppy, you estimate their age is 37
@@ -113,6 +126,12 @@ class PuppyTracker
 		// gap of minutes — and judging the whole gap by its final instant
 		// throws away growth that genuinely happened before the food ran
 		// out.
+		if (nowMillis - from > MAX_CREDIT_MILLIS)
+		{
+			// Not watching for that long: start a fresh interval here.
+			return;
+		}
+
 		long end = Math.min(nowMillis, lastFedMillis + FEED_SECONDS * 1000L);
 		if (end <= from)
 		{

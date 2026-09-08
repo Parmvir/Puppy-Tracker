@@ -22,6 +22,24 @@ public class PuppyTrackerTest
 		tracker.setFollowing(true, "Rover");
 	}
 
+	/**
+	 * Ticks across a span the way the client does, every 600ms.
+	 *
+	 * Tests used to step straight from one minute to the next as shorthand
+	 * for time passing. That shorthand is what let the truncation bug
+	 * through — every gap divided cleanly by 1000 — and it is now also
+	 * wrong, since a gap that large is treated as "not watching". Driving
+	 * the real cadence costs a few thousand cheap iterations and exercises
+	 * the path the client actually takes.
+	 */
+	private void run(long fromMillis, long toMillis)
+	{
+		for (long at = fromMillis; at <= toMillis; at += 600)
+		{
+			tracker.tick(at);
+		}
+	}
+
 	@Test
 	public void theWikisNumbersAreTheOnesUsed()
 	{
@@ -34,8 +52,7 @@ public class PuppyTrackerTest
 	public void growsWhileFedAndFollowing()
 	{
 		tracker.fed(0);
-		tracker.tick(0);
-		tracker.tick(10 * MINUTE);
+		run(0, 10 * MINUTE);
 
 		assertEquals(600, tracker.grownSeconds());
 		assertEquals(170 * MINUTE, tracker.untilGrownMillis());
@@ -86,19 +103,54 @@ public class PuppyTrackerTest
 	public void doesNotGrowOnceTwentyMinutesUnfed()
 	{
 		tracker.fed(0);
-		tracker.tick(0);
-		tracker.tick(20 * MINUTE);
+		run(0, 20 * MINUTE);
 
 		long grownAtPause = tracker.grownSeconds();
 		assertEquals(20 * 60, grownAtPause);
 
-		// Two hours ignored, then fed again.
-		tracker.tick(140 * MINUTE);
+		// Two hours of ticking while unfed, then fed again.
+		run(20 * MINUTE, 140 * MINUTE);
 		assertEquals("paused time must not count", grownAtPause, tracker.grownSeconds());
 
 		tracker.fed(140 * MINUTE);
-		tracker.tick(150 * MINUTE);
+		run(140 * MINUTE, 150 * MINUTE);
 		assertEquals(grownAtPause + 10 * 60, tracker.grownSeconds());
+	}
+
+	/**
+	 * Ticks stop when you log out, hop worlds or close the laptop. The next
+	 * one arrives with a huge gap behind it, and crediting that gap would
+	 * bank growth for time the puppy was not following you.
+	 */
+	@Test
+	public void doesNotCreditALongGapBetweenTicks()
+	{
+		tracker.fed(0);
+		run(0, MINUTE);
+		assertEquals(60, tracker.grownSeconds());
+
+		// Away for hours, then a tick lands while still inside the window of
+		// a feed that has since been renewed.
+		tracker.fed(8 * 60 * MINUTE);
+		tracker.tick(8 * 60 * MINUTE);
+
+		assertEquals("the hours away must not be banked", 60, tracker.grownSeconds());
+
+		// And it carries on normally from the new anchor.
+		tracker.tick(8 * 60 * MINUTE + 10_000);
+		assertEquals(70, tracker.grownSeconds());
+	}
+
+	@Test
+	public void stillCreditsAnOrdinaryStutter()
+	{
+		tracker.fed(0);
+		tracker.tick(0);
+
+		// A few seconds of lag is normal play, not an absence.
+		tracker.tick(5_000);
+
+		assertEquals(5, tracker.grownSeconds());
 	}
 
 	@Test
@@ -107,7 +159,7 @@ public class PuppyTrackerTest
 		tracker.fed(0);
 		tracker.tick(0);
 		tracker.setFollowing(false, null);
-		tracker.tick(10 * MINUTE);
+		run(0, 10 * MINUTE);
 
 		assertEquals(0, tracker.grownSeconds());
 	}
@@ -139,28 +191,24 @@ public class PuppyTrackerTest
 	public void feedingResumesGrowth()
 	{
 		tracker.fed(0);
-		tracker.tick(0);
-		tracker.tick(30 * MINUTE);
+		run(0, 30 * MINUTE);
 		assertTrue(tracker.isGrowthPaused(30 * MINUTE));
 
 		tracker.fed(30 * MINUTE);
 		assertFalse(tracker.isGrowthPaused(30 * MINUTE));
 
-		tracker.tick(35 * MINUTE);
+		run(30 * MINUTE, 35 * MINUTE);
 		assertEquals(25 * 60, tracker.grownSeconds());
 	}
 
 	@Test
 	public void growingUpStopsTheClockAtThreeHours()
 	{
-		tracker.fed(0);
-		tracker.tick(0);
-
 		// Fed all the way through.
-		for (long minute = 10; minute <= 190; minute += 10)
+		for (long minute = 0; minute <= 190; minute += 10)
 		{
 			tracker.fed(minute * MINUTE);
-			tracker.tick(minute * MINUTE);
+			run(minute * MINUTE, (minute + 10) * MINUTE);
 		}
 
 		assertTrue(tracker.isFullyGrown());
@@ -224,8 +272,7 @@ public class PuppyTrackerTest
 	public void syncingFromRemainingOverwritesWhatWasInferred()
 	{
 		tracker.fed(0);
-		tracker.tick(0);
-		tracker.tick(10 * MINUTE);
+		run(0, 10 * MINUTE);
 		assertEquals(600, tracker.grownSeconds());
 
 		tracker.syncRemaining(60 * 60);
@@ -272,8 +319,7 @@ public class PuppyTrackerTest
 	public void clocksSurviveARoundTripThroughStrings()
 	{
 		tracker.fed(3 * MINUTE);
-		tracker.tick(3 * MINUTE);
-		tracker.tick(13 * MINUTE);
+		run(3 * MINUTE, 13 * MINUTE);
 
 		Map<String, String> state = tracker.save();
 
@@ -293,8 +339,7 @@ public class PuppyTrackerTest
 	public void anOvernightLogoutComesBackStopped()
 	{
 		tracker.fed(0);
-		tracker.tick(0);
-		tracker.tick(10 * MINUTE);
+		run(0, 10 * MINUTE);
 
 		PuppyTracker restored = new PuppyTracker();
 		restored.load(tracker.save());
