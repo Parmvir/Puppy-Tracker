@@ -104,3 +104,10 @@ test. The overlay is tested by painting to an offscreen image.
 ```bash
 ./gradlew --offline test
 ```
+
+## Author
+
+**PsGill-** — [github.com/Parmvir](https://github.com/Parmvir)
+
+Issues and pull requests welcome at
+[Parmvir/Puppy-Tracker](https://github.com/Parmvir/Puppy-Tracker).
